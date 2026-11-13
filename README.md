@@ -20,13 +20,14 @@ phone-agent/
 ├── .envrc                     # optional direnv (use nix)
 ├── pyproject.toml
 ├── .env.example
+├── retailers.example.txt      # sample input file (one retailer link per line)
 ├── README.md
 ├── src/phone_agent/
 │   ├── __init__.py
 │   ├── __main__.py            # CLI entrypoint
 │   ├── config.py              # env + settings + startup checks
+│   ├── sources.py             # retailer links input file loader
 │   ├── schemas.py             # ALL Pydantic models (single source of truth)
-│   ├── llm.py                 # LLM factory
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   ├── search_tool.py
@@ -45,6 +46,7 @@ phone-agent/
 │   ├── test_fetch_tool.py
 │   ├── test_export.py
 │   ├── test_validate.py
+│   ├── test_sources.py
 │   └── test_pipeline_local.py
 └── out/                       # gitignored
 ```
@@ -280,7 +282,14 @@ The **Validator agent** is instructed to call `validate_records()`; it does not 
 
 ```
 python -m phone_agent --site <url> --max-urls 25 [--out-dir out] [--no-cache] [--dry-run]
+python -m phone_agent --sites-file retailers.txt --max-urls 25 [--out-dir out]
 ```
+
+`--sites-file` reads one retailer link per line. Blank lines and lines starting
+with `#` are ignored, inline `#` comments are stripped, and duplicate links are
+removed. When multiple links are provided, results are aggregated into a single
+`phones.csv` / `phones.xlsx`. Use either `--site` or `--sites-file` (both may be
+combined).
 
 **Exit codes:** 0 success, 2 config error (including the NixOS shell check in §4), 3 zero valid records, 4 pipeline exception.
 
@@ -363,6 +372,10 @@ pip install -e '.[dev]'
 
 # 3. Run the pipeline (requires OPENAI_API_KEY and SERPER_API_KEY)
 python -m phone_agent --site <retailer-url> --max-urls 5
+
+# 3b. Or research a list of retailers from an input file
+cp retailers.example.txt retailers.txt
+python -m phone_agent --sites-file retailers.txt --max-urls 5
 
 # 4. Or run in dry-run mode (no LLM/Playwright network calls)
 python -m phone_agent --site <fixture-server-url> --max-urls 5 --dry-run

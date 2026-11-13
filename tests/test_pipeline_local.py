@@ -100,3 +100,60 @@ def test_cli_missing_api_keys_exits_2(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 2
+
+
+def test_cli_dry_run_with_sites_file(tmp_path: Path) -> None:
+    """CLI accepts a file of retailer links and reports how many were loaded."""
+    sites_file = tmp_path / "retailers.txt"
+    sites_file.write_text(
+        "# sample retailers\n"
+        "https://example.com/phones\n"
+        "https://example.org/mobiles\n",
+        encoding="utf-8",
+    )
+
+    env = {
+        **os.environ,
+        "OPENAI_API_KEY": "sk-test",
+        "SERPER_API_KEY": "test",
+        "PYTHONPATH": str(REPO_ROOT / "src"),
+        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "0",
+    }
+    env.pop("PLAYWRIGHT_BROWSERS_PATH", None)
+
+    result = subprocess.run(
+        [
+            PYTHON,
+            "-m",
+            "phone_agent",
+            "--sites-file",
+            str(sites_file),
+            "--out-dir",
+            str(tmp_path / "out"),
+            "--dry-run",
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "2 site(s)" in result.stderr
+
+
+def test_cli_requires_site_or_sites_file(tmp_path: Path) -> None:
+    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")}
+    env["PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD"] = "0"
+    env.pop("PLAYWRIGHT_BROWSERS_PATH", None)
+
+    result = subprocess.run(
+        [PYTHON, "-m", "phone_agent", "--dry-run"],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 2
+    assert "--sites-file" in result.stderr

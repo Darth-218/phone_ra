@@ -7,3 +7,4 @@ __pycache__/
 .env
 .cache/
 .pytest_cache/
+retailers.txt
