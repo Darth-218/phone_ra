@@ -1,0 +1,16 @@
+[
+    {
+        "name": "iPhone 15 Pro",
+        "brand": "Apple",
+        "price": 999.99,
+        "currency": "USD",
+        "chipset": "Apple A17 Pro",
+        "ram_gb": 8,
+        "storage_gb": 256,
+        "screen_size_inch": 6.1,
+        "battery_mah": 3274,
+        "camera_mp": 48.0,
+        "os": "iOS 17",
+        "source_url": "http://localhost/test/iphone"
+    }
+]
