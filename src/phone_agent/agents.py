@@ -18,16 +18,6 @@ def _make_agent(role: str, goal: str, backstory: str) -> Agent:
 
 # ── Agent instances (import-time: tools list is empty) ──────────────────
 
-scout = _make_agent(
-    role="Phone Product URL Scout",
-    goal="Discover paginated phone product pages on the target retailer site.",
-    backstory=(
-        "A meticulous researcher who understands retailer pagination and "
-        "only reports URLs that belong to the target domain."
-    ),
-)
-"""URL discovery agent — pagination-aware, uses PhoneSearchTool"""
-
 fetcher = _make_agent(
     role="Phone Page Fetcher",
     goal="Render each product page and return clean, honest page content.",

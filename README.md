@@ -4,7 +4,7 @@
 
 Build a CLI Python application that, given a retailer base URL, discovers phone product pages, renders them, extracts structured specs, validates the records, and writes `phones.csv` + `phones.xlsx`.
 
-**In scope:** 5-agent CrewAI sequential pipeline, headless Playwright fetching with disk cache, Pydantic contracts at every handoff, deterministic validation, CSV/Excel export, NixOS dev shell.
+**In scope:** deterministic sitemap + link-crawl URL discovery, 4-agent CrewAI sequential pipeline, headless Playwright fetching with disk cache, Pydantic contracts at every handoff, deterministic validation, CSV/Excel export, NixOS dev shell.
 
 **Out of scope:** web UI, database, scheduling, multi-retailer parallel execution, price history, image downloads.
 
@@ -22,15 +22,16 @@ phone-agent/
 ├── .env.example
 ├── retailers.example.txt      # sample input file (one retailer link per line)
 ├── README.md
+├── USAGE.md                   # full usage and options reference
 ├── src/phone_agent/
 │   ├── __init__.py
 │   ├── __main__.py            # CLI entrypoint
 │   ├── config.py              # env + settings + startup checks
 │   ├── sources.py             # retailer links input file loader
+│   ├── discovery.py           # sitemap + link-crawl URL discovery
 │   ├── schemas.py             # ALL Pydantic models (single source of truth)
 │   ├── tools/
 │   │   ├── __init__.py
-│   │   ├── search_tool.py
 │   │   ├── fetch_tool.py      # Playwright + cache
 │   │   └── cache.py
 │   ├── agents.py
@@ -166,13 +167,13 @@ python -m phone_agent --site <url> --max-urls 5
 
 ```bash
 OPENAI_API_KEY=
-SERPER_API_KEY=
 PHONE_AGENT_MODEL=gpt-4o-mini
 PHONE_AGENT_MAX_URLS=25
 PHONE_AGENT_CACHE_DIR=.cache/pages
 PHONE_AGENT_OUT_DIR=out
 PHONE_AGENT_HEADLESS=true
 PHONE_AGENT_FETCH_TIMEOUT_MS=60000
+PHONE_AGENT_MAX_FETCH_RETRIES=2
 ```
 
 ---
@@ -182,7 +183,6 @@ PHONE_AGENT_FETCH_TIMEOUT_MS=60000
 ```python
 class Settings(BaseSettings):
     openai_api_key: str
-    serper_api_key: str
     model: str = "gpt-4o-mini"
     max_urls: int = 25
     cache_dir: Path = Path(".cache/pages")
@@ -195,7 +195,7 @@ class Settings(BaseSettings):
 **Requirements:**
 
 - Load from `.env` via `python-dotenv` (works fine inside `nix-shell`).
-- **Fail fast** with a clear message if `OPENAI_API_KEY` or `SERPER_API_KEY` is missing.
+- **Fail fast** with a clear message if `OPENAI_API_KEY` is missing.
 - Create `cache_dir` and `out_dir` if absent.
 - **Startup assertion:** if `os.environ.get("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD") == "1"` but `PLAYWRIGHT_BROWSERS_PATH` is unset or points to a non-existent directory, raise `RuntimeError` with the message: `"You are on NixOS but not inside nix-shell. Run nix-shell and re-enter."`
 - No other module reads `os.environ` directly.
@@ -206,7 +206,7 @@ class Settings(BaseSettings):
 
 **Key points repeated here for the coding agent:**
 
-- All task outputs use wrapper models (`UrlList`, `RawPageList`, `PhoneList`, `ValidatedPhones`). Never use bare `list[X]` in `output_pydantic`.
+- All task outputs use wrapper models (`RawPageList`, `PhoneList`, `ValidatedPhones`). Never use bare `list[X]` in `output_pydantic`.
 - `PhoneSpec` fields: `name`, `brand`, `price`, `currency`, `chipset`, `ram_gb`, `storage_gb`, `screen_size_inch`, `battery_mah`, `camera_mp`, `os`, `source_url`.
 - **Currency validator uppercases input.**
 
@@ -218,9 +218,14 @@ class Settings(BaseSettings):
 
 `PageCache` with `key(url) -> sha256(url)[:16]`, `get(url) -> str | None`, `put(url, markdown) -> None`. Writes `{key}.md` and `{key}.meta.json`.
 
-### 6.2 `tools/search_tool.py`
+### 6.2 `discovery.py`
 
-`PhoneSearchTool(BaseTool)`: wraps `SerperDevTool`, filters URLs to the target domain, caps at `max_urls`, returns `{"urls": [...]}`.
+`discover_urls(site, max_urls, settings) -> list[str]`: no-key URL discovery.
+
+- Reads `robots.txt` for sitemap locations (falling back to `/sitemap.xml`) and walks sitemap indexes.
+- Crawls the supplied page with Playwright and extracts same-site `<a href>` links, with a static-HTML fallback.
+- Keeps product-like URLs, drops cart/login/blog/accessory pages, dedupes, and caps at `max_urls`.
+- Falls back to the supplied URL when nothing is discovered.
 
 ### 6.3 `tools/fetch_tool.py`
 
@@ -248,19 +253,18 @@ class Settings(BaseSettings):
 
 | Agent | Tools | Backstory theme |
 |-------|-------|----------------|
-| scout | `PhoneSearchTool` | pagination-aware URL discovery |
 | fetcher | `PlaywrightFetchTool` | adversarial fetch, honest error reporting |
 | extractor | none | nulls over guesses |
 | validator | none | deterministic gatekeeper |
 | reporter | none | writes files, prints counts |
 
-**All agents:** `ChatOpenAI(model=settings.model, temperature=0.1)`, `allow_delegation=False`, `verbose=True`, `max_iter=8`.
+**All agents:** `LLM(model=settings.model, temperature=0.1)`, `allow_delegation=False`, `verbose=True`, `max_iter=8`.
 
 ---
 
 ## 8. Tasks (`tasks.py`)
 
-Five sequential tasks, exactly as in the previous spec, with `context=[previous]` and `output_pydantic` on tasks 1–4. **Reporter task has no Pydantic output.**
+Four sequential tasks, with `context=[previous]` and `output_pydantic` on tasks 1–3. **Reporter task has no Pydantic output.** URL discovery runs deterministically before the crew and is passed in via the `{urls}` input.
 
 ---
 
@@ -304,9 +308,10 @@ combined).
 - ✅ `nix-shell` enters without error; `pip install -e '.[dev]'` succeeds; `pytest tests/test_schemas.py` passes.
 - ✅ `python -c "import os; print(os.environ.get('PLAYWRIGHT_BROWSERS_PATH'))"` prints a valid nix store path.
 
-### M1 — Tools
-- `cache.py`, `fetch_tool.py`, `search_tool.py`.
+### M1 — Tools & Discovery
+- `cache.py`, `fetch_tool.py`, `discovery.py`.
 - ✅ `test_fetch_tool.py` serves `tests/fixtures/pages/iphone.html` from a stdlib `http.server` on a random port; asserts returned Markdown contains "iPhone" and excludes `<script>` text; asserts second call hits cache (mock `sync_playwright` and assert not called).
+- ✅ `test_discovery.py` covers sitemap parsing, robots.txt discovery, URL filtering/dedupe/cap, and fallback.
 - ✅ Runs against the nix-bundled Chromium — no `playwright install` in CI. If the test fails with "browser not found", the coding agent must fix the playwright pin in `pyproject.toml`, not add an install step.
 - ✅ No orphan Chromium processes after the test run.
 
@@ -363,6 +368,23 @@ combined).
 
 ## Usage
 
+See [USAGE.md](USAGE.md) for the complete reference: every CLI option, environment
+variable, input file format, output file, exit code, validation rule, and
+troubleshooting step.
+
+Non-Nix users (Linux, macOS, Windows): see
+[USAGE.md §2.2](USAGE.md#22-non-nix-systems-linux-macos-windows) for the full
+venv + Playwright setup. The short version:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
+playwright install --with-deps chromium   # omit --with-deps on macOS/Windows
+cp .env.example .env                       # then add OPENAI_API_KEY
+```
+
+Quick start:
+
 ```bash
 # 1. Enter the nix dev shell
 nix-shell
@@ -370,19 +392,16 @@ nix-shell
 # 2. Install the package in editable mode
 pip install -e '.[dev]'
 
-# 3. Run the pipeline (requires OPENAI_API_KEY and SERPER_API_KEY)
+# 3. Run the pipeline (requires OPENAI_API_KEY)
 python -m phone_agent --site <retailer-url> --max-urls 5
 
-# 3b. Or research a list of retailers from an input file
+# 4. Or research a list of retailers from an input file
 cp retailers.example.txt retailers.txt
 python -m phone_agent --sites-file retailers.txt --max-urls 5
 
-# 4. Or run in dry-run mode (no LLM/Playwright network calls)
+# 5. Or run in dry-run mode (no LLM/Playwright network calls)
 python -m phone_agent --site <fixture-server-url> --max-urls 5 --dry-run
-
-# Exit codes:
-# 0 - success
-# 2 - config error (including NixOS shell check)
-# 3 - zero valid records
-# 4 - pipeline exception
 ```
+
+Exit codes: `0` success, `2` configuration error, `3` zero valid records,
+`4` pipeline failure.

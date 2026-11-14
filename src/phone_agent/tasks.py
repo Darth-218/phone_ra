@@ -1,36 +1,23 @@
 from crewai import Task
 
-from phone_agent.agents import extractor, fetcher, reporter, scout, validator
-from phone_agent.schemas import PhoneList, RawPageList, UrlList, ValidatedPhones
+from phone_agent.agents import extractor, fetcher, reporter, validator
+from phone_agent.schemas import PhoneList, RawPageList, ValidatedPhones
 
 
-# ── Task 1: URL Discovery ──────────────────────────────────────────────
-task_discover_urls = Task(
-    description=(
-        "Given a retailer base URL, discover phone product pages "
-        "using the PhoneSearchTool. Cap results at {max_urls} URLs. "
-        "Return a UrlList wrapper."
-    ),
-    expected_output="UrlList containing discovered product page URLs",
-    output_pydantic=UrlList,
-    agent=scout,
-    context=[],
-)
-
-# ── Task 2: Fetch Pages ────────────────────────────────────────────────
+# ── Task 1: Fetch Pages ────────────────────────────────────────────────
 task_fetch_pages = Task(
     description=(
-        "Fetch each URL from the UrlList using PlaywrightFetchTool "
-        "with disk cache. Skip already-cached URLs. Return a "
-        "RawPageList mapping URL -> markdown content."
+        "Fetch each URL from the provided {urls} list using "
+        "PlaywrightFetchTool with disk cache. Skip already-cached URLs. "
+        "Return a RawPageList mapping URL -> markdown content."
     ),
     expected_output="RawPageList of URL -> markdown mappings",
     output_pydantic=RawPageList,
     agent=fetcher,
-    context=[task_discover_urls],
+    context=[],
 )
 
-# ── Task 3: Extract Specs ──────────────────────────────────────────────
+# ── Task 2: Extract Specs ──────────────────────────────────────────────
 task_extract_specs = Task(
     description=(
         "Extract structured phone specifications (name, brand, price, "
@@ -44,7 +31,7 @@ task_extract_specs = Task(
     context=[task_fetch_pages],
 )
 
-# ── Task 4: Validate Records ───────────────────────────────────────────
+# ── Task 3: Validate Records ───────────────────────────────────────────
 task_validate = Task(
     description=(
         "Validate all extracted phone records using deterministic "
@@ -59,7 +46,7 @@ task_validate = Task(
     context=[task_extract_specs],
 )
 
-# ── Task 5: Report / Export ─────────────────────────────────────────────
+# ── Task 4: Report / Export ─────────────────────────────────────────────
 task_report = Task(
     description=(
         "Write the validated phone records to phones.csv and "

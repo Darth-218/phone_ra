@@ -45,7 +45,6 @@ def test_cli_dry_run(tmp_path: Path) -> None:
     env = {
         **os.environ,
         "OPENAI_API_KEY": "sk-test",
-        "SERPER_API_KEY": "test",
         "PYTHONPATH": str(REPO_ROOT / "src"),
         "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "0",
     }
@@ -78,7 +77,6 @@ def test_cli_missing_api_keys_exits_2(tmp_path: Path) -> None:
     """CLI exits 2 when required API keys are absent."""
     env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")}
     env.pop("OPENAI_API_KEY", None)
-    env.pop("SERPER_API_KEY", None)
     env.pop("PLAYWRIGHT_BROWSERS_PATH", None)
     env["PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD"] = "0"
 
@@ -115,7 +113,6 @@ def test_cli_dry_run_with_sites_file(tmp_path: Path) -> None:
     env = {
         **os.environ,
         "OPENAI_API_KEY": "sk-test",
-        "SERPER_API_KEY": "test",
         "PYTHONPATH": str(REPO_ROOT / "src"),
         "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "0",
     }

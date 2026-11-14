@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from phone_agent.config import Settings
 from phone_agent.crew import crew
+from phone_agent.discovery import discover_urls
 from phone_agent.export import export_phones
 from phone_agent.schemas import PhoneSpec, ValidatedPhones
 from phone_agent.sources import load_sites_file
@@ -131,10 +132,8 @@ def _run_pipeline(args: argparse.Namespace) -> int:
         log.error(str(e))
         return 2
 
-    if not s.openai_api_key or not s.serper_api_key:
-        log.error(
-            "OPENAI_API_KEY and SERPER_API_KEY must be set (see .env.example)"
-        )
+    if not s.openai_api_key:
+        log.error("OPENAI_API_KEY must be set (see .env.example)")
         return 2
 
     try:
@@ -176,14 +175,26 @@ def _run_pipeline(args: argparse.Namespace) -> int:
     valid_records: List[PhoneSpec] = []
     rejected: list = []
     failed_sites = 0
+    total_discovered = 0
 
     for site in sites:
         log.info("Processing site: %s", site)
+
+        try:
+            urls = discover_urls(site, s.max_urls, s)
+        except Exception as exc:  # noqa: BLE001 - fall back to supplied URL
+            log.warning(
+                "Discovery failed for %s: %s; using the supplied URL", site, exc
+            )
+            urls = [site]
+        total_discovered += len(urls)
+
         try:
             result = crew.kickoff(
                 inputs={
                     "site": site,
                     "max_urls": s.max_urls,
+                    "urls": urls,
                 }
             )
         except Exception as exc:
@@ -222,7 +233,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
 
     # Logging / counts line
     found = len(valid_records) + len(rejected)
-    fetched = s.max_urls * len(sites)
+    fetched = total_discovered
     extracted = len(valid_records)
 
     counts_line = (

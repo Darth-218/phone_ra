@@ -9,9 +9,6 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(
         "", validation_alias=AliasChoices("OPENAI_API_KEY")
     )
-    serper_api_key: str = Field(
-        "", validation_alias=AliasChoices("SERPER_API_KEY")
-    )
     model: str = Field(
         "gpt-4o-mini",
         validation_alias=AliasChoices("PHONE_AGENT_MODEL", "MODEL"),
